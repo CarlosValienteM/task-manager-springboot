@@ -4,6 +4,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import umg.edu.gt.persistence.model.Task;
 import umg.edu.gt.persistence.service.TaskService;
+import umg.edu.gt.taskmanagerspringboot.service.TaskEventSenderService;
 
 import java.util.List;
 
@@ -14,6 +15,9 @@ public class TaskController {
     @Autowired
     private TaskService taskService;
 
+    @Autowired
+    private TaskEventSenderService taskEventSenderService;
+
     @GetMapping
     public List<Task> getAllTasks() {
         return taskService.findAll();
@@ -21,9 +25,17 @@ public class TaskController {
 
     @PostMapping
     public Task createTask(@RequestBody Task task) {
-        return taskService.save(task);
+        Task savedTask = taskService.save(task);
+
+        // Enviar evento a RabbitMQ
+        String message = "Nueva tarea creada: ID=" + savedTask.getId() +
+                         ", descripción=" + savedTask.getDescription();
+        taskEventSenderService.sendTaskCreatedEvent(message);
+
+        return savedTask;
     }
-        @GetMapping("/{id}")
+
+    @GetMapping("/{id}")
     public Task getTaskById(@PathVariable Long id) {
         return taskService.findById(id);
     }
@@ -33,5 +45,4 @@ public class TaskController {
         taskService.deleteById(id);
         return "✅ Tarea eliminada con ID: " + id;
     }
-
 }
