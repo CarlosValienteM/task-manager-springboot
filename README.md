@@ -1,107 +1,149 @@
-# Task Manager – Módulo Principal (Spring Boot)
+# 🧠 Task Manager Spring Boot – Integración RabbitMQ
 
-Este es el módulo central del proyecto **Task Manager**, desarrollado con Spring Boot. Se encarga de coordinar la lógica principal, exponer APIs REST, y utilizar los módulos de estructuras y persistencia como dependencias.
+Este proyecto es parte del sistema de gestión de tareas con arquitectura por módulos, desarrollado con **Spring Boot** y **RabbitMQ** para manejar eventos asincrónicos.
 
-## 📈 Funcionalidades principales
+---
 
-* Exponer APIs REST para:
+## 🚀 Características principales
 
-  * Crear, listar y eliminar tareas
-  * Gestionar el historial de tareas
-  * Operaciones con estructuras: pila, cola, cola con prioridad, árbol de subtareas
-* Uso de anotaciones `@RestController`, `@Service` y `@Autowired`
-* Documentación de endpoints con Swagger UI
-* Persistencia con JPA y base de datos MariaDB
+* API REST para gestión de tareas (`/api/tasks`)
+* Envió de eventos a RabbitMQ cuando se crea una nueva tarea
+* Listener que consume automáticamente los mensajes de la cola `taskQueue`
+* Integración modular con servicios, controladores y configuración separada
 
-## ✨ Tecnologías
+---
+
+## ⚙️ Tecnologías usadas
 
 * Java 22
 * Spring Boot 3.5.0
+* RabbitMQ (cola de mensajes)
+* Spring AMQP (`spring-boot-starter-amqp`)
 * Maven
-* MariaDB
-* Swagger UI (OpenAPI 3)
+* MariaDB / MySQL (para persistencia de tareas)
 
 ---
 
-## 🌍 Documentación Swagger
+## 📦 Configuración de RabbitMQ
 
-Una vez iniciada la aplicación, accede a:
+### Dependencia en `pom.xml`
 
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-amqp</artifactId>
+</dependency>
 ```
-http://localhost:8080/swagger-ui/index.html
-```
 
-Desde ahí podés probar todos los endpoints de forma visual.
-
----
-
-## ⚙️ Configuración de la Base de Datos
-
-En el archivo `application.properties`:
+### Configuración en `application.properties`
 
 ```properties
-spring.datasource.url=jdbc:mariadb://localhost:3306/task_manager_db
-spring.datasource.username=root
-spring.datasource.password=
+spring.rabbitmq.host=localhost
+spring.rabbitmq.port=5672
+spring.rabbitmq.username=guest
+spring.rabbitmq.password=guest
+```
 
-spring.datasource.driver-class-name=org.mariadb.jdbc.Driver
-spring.jpa.hibernate.ddl-auto=update
-spring.jpa.show-sql=true
-spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.MariaDBDialect
+### Clase de configuración: `RabbitMQConfig.java`
 
-server.port=8080
+```java
+@Configuration
+public class RabbitMQConfig {
+    public static final String TASK_QUEUE = "taskQueue";
+
+    @Bean
+    public Queue taskQueue() {
+        return new Queue(TASK_QUEUE, false);
+    }
+}
 ```
 
 ---
 
-## 📊 Dependencias internas
+## ✉️ Envió de eventos a RabbitMQ
 
-Este módulo depende de los otros dos:
+### Servicio: `TaskEventSenderService.java`
 
-### task-manager-structures
+```java
+@Service
+public class TaskEventSenderService {
 
-```xml
-<dependency>
-    <groupId>umg.edu.gt</groupId>
-    <artifactId>task-manager-structures</artifactId>
-    <version>1.0.0</version>
-</dependency>
+    @Autowired
+    private RabbitTemplate rabbitTemplate;
+
+    public void sendTaskCreatedEvent(String message) {
+        rabbitTemplate.convertAndSend(RabbitMQConfig.TASK_QUEUE, message);
+        System.out.println("✅ Mensaje enviado a RabbitMQ: " + message);
+    }
+}
 ```
 
-### task-manager-persistence
+### Controlador: `TaskController.java`
 
-```xml
-<dependency>
-    <groupId>umg.edu.gt</groupId>
-    <artifactId>task-manager-persistence</artifactId>
-    <version>1.0.0</version>
-</dependency>
-```
+```java
+@PostMapping
+public Task createTask(@RequestBody Task task) {
+    Task savedTask = taskService.save(task);
 
----
+    String message = "Nueva tarea creada: ID=" + savedTask.getId() +
+                     ", descripción=" + savedTask.getDescription();
+    taskEventSenderService.sendTaskCreatedEvent(message);
 
-## 🚀 Ejecución
-
-1. Clonar el repositorio
-2. Configurar la base de datos `task_manager_db` en XAMPP o similar
-3. Ejecutar `TaskManagerSpringbootApplication.java`
-4. Acceder a Swagger: [http://localhost:8080/swagger-ui/index.html](http://localhost:8080/swagger-ui/index.html)
-
----
-
-## 📖 Estructura del paquete principal
-
-```
-umg.edu.gt.taskmanagerspringboot
-├── controller
-├── service
-├── model
-├── config
-└── TaskManagerSpringbootApplication.java
+    return savedTask;
+}
 ```
 
 ---
 
-## 🎓 Autor
+## 📥 Listener: consumo automático de mensajes
 
-Carlos Valiente - Proyecto final UMG 2025
+### Clase: `TaskEventListener.java`
+
+```java
+@Component
+public class TaskEventListener {
+
+    @RabbitListener(queues = RabbitMQConfig.TASK_QUEUE)
+    public void receiveMessage(String message) {
+        System.out.println("📥 Mensaje recibido desde RabbitMQ: " + message);
+    }
+}
+```
+
+---
+
+## ✅ Pruebas
+
+1. Ejecutá RabbitMQ localmente o en Docker
+2. Iniciá el proyecto Spring Boot
+3. Hacé un POST a `/api/tasks` con un JSON como:
+
+```json
+{
+  "description": "Estudiar RabbitMQ",
+  "completed": false
+}
+```
+
+4. Verás en consola:
+
+   * ✉️ Mensaje enviado a RabbitMQ
+   * 📥 Mensaje recibido por el listener
+
+---
+
+## 🧾 Autor
+
+**Carlos Valiente** 
+
+---
+
+## 📌 Recomendaciones
+
+* Asegurate de tener RabbitMQ corriendo antes de iniciar el backend.
+* Podés monitorear los mensajes usando el panel en: `http://localhost:15672` (user/pass: guest/guest)
+* Esta estructura permite escalar el sistema para notificaciones, logs, auditoría y mucho más.
+
+---
+
+🚀 **Listo para producción y eventos en tiempo real**
